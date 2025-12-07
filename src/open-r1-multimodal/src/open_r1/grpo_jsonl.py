@@ -931,6 +931,7 @@ def main(script_args, training_args, model_args):
     vlm_module_cls = get_vlm_module(model_args.model_name_or_path)
     print("using vlm module:", vlm_module_cls.__name__)
     question_prompt = vlm_module_cls.get_question_template(task_type=script_args.task_type)
+    print("Prompt Template", question_prompt)
 
     # Get reward functions 
     if script_args.is_reward_customized_from_vlm_module:
@@ -980,6 +981,10 @@ def main(script_args, training_args, model_args):
                 
                 # Handle solution that could be a float or string
                 solution_value = item['conversations'][1]['value']
+                # print("@ MAIN DEBUG @")
+                # print("Solution Value:", solution_value)
+                # print("Image Path:", item['image_path'])
+                # print("@ MAIN DEBUG @\n")
                 if isinstance(solution_value, str):
                     item['solution'] = solution_value.replace('<answer>', '').replace('</answer>', '').strip()
                 else:

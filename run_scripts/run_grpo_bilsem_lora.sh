@@ -13,7 +13,8 @@ is_reward_customized_from_vlm_module=True
 echo "data_paths: $data_paths"
 echo "image_folders: $image_folders"
 
-export EXP_NAME="blsm-human-annot-1-qwen2.5-VL-3B-instruct-lora-1" # TODO: change this to your own experiment name
+ # TODO: change this to your own experiment name
+export EXP_NAME="blsm-human-annot-1-qwen2.5-VL-3B-instruct-lora-1"
 
 # TASK_TYPE="rec"
 TASK_TYPE="bilsem"
@@ -28,7 +29,6 @@ export LOG_PATH="${REPO_HOME}/runs/${EXP_NAME}/log/debug_log.$(date +%Y-%m-%d-%H
 
 
 # export WANDB_DISABLED=true
-# TODO REWARD FUNCTION OTHER THAN FORMAT !!!!
 CUDA_VISIBLE_DEVICES=0,1,2,3
 torchrun --nproc_per_node="4" \
     --nnodes="1" \
@@ -36,7 +36,7 @@ torchrun --nproc_per_node="4" \
     --master_addr="127.0.0.1" \
     --master_port="12349" \
   src/open_r1/grpo_jsonl.py \
-    --use_vllm False \
+    --use_vllm True \
     --output_dir ${REPO_HOME}/checkpoints/rl/${EXP_NAME} \
     --resume_from_checkpoint True \
     --model_name_or_path $model_path \

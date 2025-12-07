@@ -73,7 +73,7 @@ class Qwen2VLModule(VLMBaseModule):
     def get_question_template(task_type: str):
         match task_type:
             case "bilsem":
-                return "{Question} Önce düşünme sürecini <think> </think> etiketleri içinde, ardından nihai cevabı <answer> </answer> etiketleri içinde ver. Cevabı tek bir şık halinde sun: A, B, C veya D."
+                return "{Question} Önce düşünme sürecini <think> </think> etiketleri içinde, ardından nihai cevabı <answer> </answer> etiketleri içinde ver. Adaylar arasında tek bir nihai cevabın olmalıdır."
             case "rec":
                 return "{Question} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags. Output the final answer in JSON format."
             case "ic":
@@ -105,23 +105,48 @@ class Qwen2VLModule(VLMBaseModule):
             with open(log_path.replace(".txt", "_format.txt"), "a", encoding='utf-8') as f:
                 f.write(f"------------- {current_time} Format reward -------------\n")
                 for content, match in zip(completion_contents, matches):
-                    f.write(f"Content: {content}\n")
+                    f.write(f"Model Out :    {content}\n")
                     f.write(f"Has format: {bool(match)}\n")
+                f.write(f"--------------------------\n\n")
+
+        return [1.0 if match else 0.0 for match in matches]
+
+    def format_reward_bilsem(completions, **kwargs):
+        """Check if the Qwen model output matches a specific format."""
+        import re
+        import os
+        from datetime import datetime
+        pattern = r"<think>.*?</think>\s*<answer>.*?</answer>"
+        completion_contents = [completion[0]["content"] for completion in completions]
+        matches = [re.search(pattern, content, re.DOTALL) is not None for content in completion_contents]
+
+        current_time = datetime.now().strftime("%d-%H-%M-%S-%f")
+        if os.getenv("DEBUG_MODE") == "true":
+            log_path = os.getenv("LOG_PATH")
+            with open(log_path.replace(".txt", "_format.txt"), "a", encoding='utf-8') as f:
+                f.write(f"------------- {current_time} Format reward -------------\n\n")
+                for content, match in zip(completion_contents, matches):
+                    f.write(f"Model Out :    {content}\n")
+                    f.write(f"Has format: {bool(match)}\n")
+                    f.write(f"-------\n\n")
+                f.write(f"--------------------------\n\n\n")
 
         return [1.0 if match else 0.0 for match in matches]
 
     @staticmethod
-    def bilsem_reward(completions, solution, **kwargs):
+    def acc_reward_bilsem(completions, solution, **kwargs):
 
         rewards = []
         contents = [completion[0]["content"] for completion in completions]
 
         current_time = datetime.now().strftime("%d-%H-%M-%S-%f")
         answer_tag_pattern = r'<answer>(.*?)</answer>'
-        for i, (content, sol) in enumerate(zip(contents, solution)):
+        for i, (content, a_solution) in enumerate(zip(contents, solution)):
             image_path = kwargs.get("image_path")[i][0]
+            sol = re.findall(answer_tag_pattern, a_solution, re.DOTALL)[-1]
             sol = sol.strip()
             reward = 0.0
+            exception_info = "NONE"
 
             # Try symbolic verification first
             try:
@@ -132,8 +157,7 @@ class Qwen2VLModule(VLMBaseModule):
                         reward = 1.0
 
             except Exception:
-                # Store the exception for logging.
-                pass
+                exception_info = str(e)
 
             rewards.append(reward)
             
@@ -149,7 +173,10 @@ class Qwen2VLModule(VLMBaseModule):
                         f.write(f"image_path: {image_path}\n")
                         f.write(f"problem: {problem}\n")
                         f.write(f"Content: {content}\n")
-                        f.write(f"Solution: {sol}\n") 
+                        f.write(f"Sol: {sol}\n") 
+                        f.write(f"Solution: {a_solution}\n") 
+                        f.write(f"Exception: {exception_info}\n") 
+                        f.write(f"--------------------------\n\n")
 
         return rewards
 
@@ -219,10 +246,11 @@ class Qwen2VLModule(VLMBaseModule):
                 if reward <= 1.0:  # this condition can be changed for debug
                     with open(log_path, "a", encoding='utf-8') as f:
                         f.write(f"------------- {current_time} Accuracy reward: {reward} -------------\n")
-                        f.write(f"image_path: {image_path}\n")
-                        f.write(f"problem: {problem}\n")
-                        f.write(f"Content: {content}\n")
-                        f.write(f"Solution: {sol}\n") 
+                        f.write(f"image       : {image_path}\n")
+                        f.write(f"Question    : {problem}\n")
+                        f.write(f"Model Out   : {content}\n")
+                        f.write(f"Groundtruth : {sol}\n") 
+                        f.write(f"--------------------------\n\n")
         return rewards
 
     @staticmethod
@@ -230,7 +258,7 @@ class Qwen2VLModule(VLMBaseModule):
         if func == "accuracy":
             match task_type:
                 case "bilsem":
-                    return Qwen2VLModule.bilsem_reward
+                    return Qwen2VLModule.acc_reward_bilsem
                 case "rec":
                     return Qwen2VLModule.iou_reward
                 case _:
@@ -238,7 +266,7 @@ class Qwen2VLModule(VLMBaseModule):
         elif func == "format":
             match task_type:
                 case "bilsem":
-                    return Qwen2VLModule.format_reward_rec
+                    return Qwen2VLModule.format_reward_bilsem
                 case "rec":
                     return Qwen2VLModule.format_reward_rec
                 case _:
