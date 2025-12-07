@@ -5,6 +5,9 @@ import torch
 from copy import deepcopy
 from open_r1.vlm_modules.vlm_module import VLMBaseModule
 from PIL import Image
+import re
+import os
+from datetime import datetime
 
 class Qwen2VLModule(VLMBaseModule):
     def __init__(self):
@@ -69,6 +72,8 @@ class Qwen2VLModule(VLMBaseModule):
     @staticmethod
     def get_question_template(task_type: str):
         match task_type:
+            case "bilsem":
+                return "{Question} Önce düşünme sürecini <think> </think> etiketleri içinde, ardından nihai cevabı <answer> </answer> etiketleri içinde ver. Cevabı tek bir şık halinde sun: A, B, C veya D."
             case "rec":
                 return "{Question} First output the thinking process in <think> </think> tags and then output the final answer in <answer> </answer> tags. Output the final answer in JSON format."
             case "ic":
@@ -102,7 +107,52 @@ class Qwen2VLModule(VLMBaseModule):
                 for content, match in zip(completion_contents, matches):
                     f.write(f"Content: {content}\n")
                     f.write(f"Has format: {bool(match)}\n")
+
         return [1.0 if match else 0.0 for match in matches]
+
+    @staticmethod
+    def bilsem_reward(completions, solution, **kwargs):
+
+        rewards = []
+        contents = [completion[0]["content"] for completion in completions]
+
+        current_time = datetime.now().strftime("%d-%H-%M-%S-%f")
+        answer_tag_pattern = r'<answer>(.*?)</answer>'
+        for i, (content, sol) in enumerate(zip(contents, solution)):
+            image_path = kwargs.get("image_path")[i][0]
+            sol = sol.strip()
+            reward = 0.0
+
+            # Try symbolic verification first
+            try:
+                content_answer_match = re.search(answer_tag_pattern, content, re.DOTALL)
+                if content_answer_match:
+                    content_answer = content_answer_match.group(1).strip()
+                    if content_answer == sol:
+                        reward = 1.0
+
+            except Exception:
+                # Store the exception for logging.
+                pass
+
+            rewards.append(reward)
+            
+            # LOGGING LOGIC
+            if os.getenv("DEBUG_MODE") == "true":
+                log_path = os.getenv("LOG_PATH")
+                current_time = datetime.now().strftime("%d-%H-%M-%S-%f")
+                image_path = kwargs.get("image_path")[i] if "image_path" in kwargs else None
+                problem = kwargs.get("problem")[i]
+                if reward <= 1.0:  # this condition can be changed for debug
+                    with open(log_path, "a", encoding='utf-8') as f:
+                        f.write(f"------------- {current_time} Accuracy reward: {reward} -------------\n")
+                        f.write(f"image_path: {image_path}\n")
+                        f.write(f"problem: {problem}\n")
+                        f.write(f"Content: {content}\n")
+                        f.write(f"Solution: {sol}\n") 
+
+        return rewards
+
     
     @staticmethod
     def iou_reward(completions, solution, **kwargs):
@@ -179,12 +229,16 @@ class Qwen2VLModule(VLMBaseModule):
     def select_reward_func(func: str, task_type: str):
         if func == "accuracy":
             match task_type:
+                case "bilsem":
+                    return Qwen2VLModule.bilsem_reward
                 case "rec":
                     return Qwen2VLModule.iou_reward
                 case _:
                     raise ValueError(f"Unsupported reward function: {func}")
         elif func == "format":
             match task_type:
+                case "bilsem":
+                    return Qwen2VLModule.format_reward_rec
                 case "rec":
                     return Qwen2VLModule.format_reward_rec
                 case _:
